@@ -149,6 +149,7 @@ function RouteComponent() {
   );
 
   const mutation = useConvexMutation(api.workflows.kickoffWorkflow);
+  const updatePosition = useConvexMutation(api.workflows.updateNodePosition);
 
   const formattedWorkflowNodes = workflow?.nodes.map((node) => ({
     id: node._id as string,
@@ -176,6 +177,7 @@ function RouteComponent() {
 
     const updatedNodes = formattedWorkflowNodes.map((node) => {
       const step = steps.find((_step) => _step.nodeId === node.id);
+
       if (step) {
         return {
           ...node,
@@ -189,13 +191,53 @@ function RouteComponent() {
       return node;
     });
 
+    const updateEdges = formattedEdges.map((edge) => {
+      const sourceNodeStep = steps.find(
+        (_step) => _step.nodeId === edge.source
+      );
+      const targetNodeStep = steps.find(
+        (_step) => _step.nodeId === edge.target
+      );
+
+      if (
+        sourceNodeStep &&
+        targetNodeStep &&
+        targetNodeStep.status === "running"
+      ) {
+        return {
+          ...edge,
+          animated: true,
+          // style: { stroke: "blue" },
+        };
+      }
+
+      return {
+        ...edge,
+        animated: false,
+        // style: { stroke: "lightgrey" },
+      };
+    });
+
+    setEdges(updateEdges);
+
     setNodes(updatedNodes);
   }, [steps]);
 
   const onNodesChange = useCallback(
-    (changes: NodeChange[]) =>
-      setNodes((nodesSnapshot) => applyNodeChanges(changes, nodesSnapshot)),
-    []
+    (changes: NodeChange[]) => {
+      if (changes[0].type === "position") {
+        updatePosition({
+          nodeId: changes[0].id as Id<"nodes">,
+          positionX: changes[0].position?.x || 0,
+          positionY: changes[0].position?.y || 0,
+        });
+      }
+
+      return setNodes((nodesSnapshot) =>
+        applyNodeChanges(changes, nodesSnapshot)
+      );
+    },
+    [updatePosition]
   );
 
   const onEdgesChange = useCallback(

@@ -224,3 +224,19 @@ export const getStepStatus = query({
       }));
   },
 });
+
+export const updateNodePosition = mutation({
+  args: {
+    nodeId: v.id("nodes"),
+    positionX: v.number(),
+    positionY: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.nodeId, {
+      position: {
+        x: args.positionX,
+        y: args.positionY,
+      },
+    });
+  },
+});
