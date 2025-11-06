@@ -1,4 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import {
+  ClientOnly,
+  createFileRoute,
+  ErrorComponent,
+  type ErrorComponentProps,
+} from "@tanstack/react-router";
 import {
   addEdge,
   applyEdgeChanges,
@@ -11,49 +16,141 @@ import {
   type Node,
   type NodeChange,
   type NodeTypes,
+  Panel,
   ReactFlow,
+  ReactFlowProvider,
+  useNodeId,
+  useNodesData,
 } from "@xyflow/react";
-import { useCallback, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import "@xyflow/react/dist/style.css";
-import { convexQuery } from "@convex-dev/react-query";
-import { api } from "@flows/backend";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { api } from "@flows/backend/convex/_generated/api.js";
+import type { Id } from "@flows/backend/convex/_generated/dataModel.js";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { ArrowRight, Globe, Plus } from "lucide-react";
 import { PlaceholderNode } from "@/components/placeholder-node";
+import { Button } from "@/components/ui/button";
+
+type WorkflowStepStatus = {
+  nodeId: string | null;
+  stepNumber: number;
+  name: string;
+  result: "success" | "failed" | "canceled" | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  data: unknown;
+  status: string;
+};
+
+type WorkflowStepsContextValue = {
+  steps: WorkflowStepStatus[] | undefined;
+};
+
+const WorkflowStepsContext = createContext<WorkflowStepsContextValue | null>(
+  null
+);
+
+type WorkflowStepsProviderProps = {
+  children: ReactNode;
+  steps: WorkflowStepStatus[] | undefined;
+};
+
+const WorkflowStepsProvider = ({
+  children,
+  steps,
+}: WorkflowStepsProviderProps) => {
+  const value = useMemo(
+    () => ({
+      steps,
+    }),
+    [steps]
+  );
+
+  return (
+    <WorkflowStepsContext.Provider value={value}>
+      {children}
+    </WorkflowStepsContext.Provider>
+  );
+};
+
+export const useWorkflowSteps = () => {
+  const context = useContext(WorkflowStepsContext);
+  if (!context) {
+    throw new Error(
+      "useWorkflowSteps must be used within WorkflowStepsProvider"
+    );
+  }
+  return context;
+};
 
 export const Route = createFileRoute("/_authenticated/home/")({
   component: RouteComponent,
-  loader({ context: { queryClient } }) {
-    queryClient.ensureQueryData(
+  errorComponent: EditorErrorComponent,
+  loader: async ({ context: { queryClient } }) => {
+    await queryClient.ensureQueryData(
       convexQuery(api.workflows.getWorflow, {
-        workflowId: "jh7f8dgg96st1bpj0eycw9zrt17tnbbj",
+        workflowId: "jh764q8p3p7sa56e23zjw58vt57tp4gn" as Id<"workflows">,
       })
     );
   },
 });
 
-// const initialNodes = [
-//   { id: "n1", position: { x: 0, y: 0 }, data: { label: "Node 1" } },
-//   { id: "n2", position: { x: 0, y: 100 }, data: { label: "Node 2" } },
-// ];
-
-// const initialEdges = [{ id: "n1-n2", source: "n1", target: "n2" }];
-
 const nodeComponents = {
   initial: () => (
     <PlaceholderNode>
-      <div>+</div>
+      <div className="flex items-center justify-center">
+        <Plus />
+      </div>
     </PlaceholderNode>
   ),
+  trigger: () => (
+    <PlaceholderNode>
+      <ArrowRight />
+    </PlaceholderNode>
+  ),
+  http: () => {
+    const nodeId = useNodeId();
+    const data = useNodesData(nodeId ?? "");
+
+    return (
+      <PlaceholderNode>
+        {data?.data.status === "running" ? "Running..." : <Globe />}
+      </PlaceholderNode>
+    );
+  },
 } as const satisfies NodeTypes;
 
+export function EditorErrorComponent({ error }: ErrorComponentProps) {
+  return <ErrorComponent error={error} />;
+}
+
 function RouteComponent() {
-  const { data } = useSuspenseQuery(
+  const { data: workflow } = useSuspenseQuery(
     convexQuery(api.workflows.getWorflow, {
-      workflowId: "jh7f8dgg96st1bpj0eycw9zrt17tnbbj",
+      workflowId: "jh764q8p3p7sa56e23zjw58vt57tp4gn" as Id<"workflows">,
     })
   );
 
-  const formattedWorkflowNodes = data?.workflow.nodes.map((node) => ({
+  const { data: steps } = useQuery(
+    convexQuery(api.workflows.getStepStatus, {
+      // biome-ignore lint/style/noNonNullAssertion: relax
+      // biome-ignore lint/suspicious/noNonNullAssertedOptionalChain: chill
+      workflowId: workflow.workflow?.currentRunId!,
+    })
+  );
+
+  const mutation = useConvexMutation(api.workflows.kickoffWorkflow);
+
+  const formattedWorkflowNodes = workflow?.nodes.map((node) => ({
     id: node._id as string,
     type: node.type,
     position: node.position as { x: number; y: number },
@@ -62,8 +159,38 @@ function RouteComponent() {
     },
   })) as Node[];
 
+  const formattedEdges = workflow?.edges.map((edge) => ({
+    id: edge._id as string,
+    source: edge.sourceNodeId,
+    target: edge.targetNodeId,
+  })) as Edge[];
+
   const [nodes, setNodes] = useState<Node[]>(formattedWorkflowNodes);
-  const [edges, setEdges] = useState<Edge[]>([]);
+  const [edges, setEdges] = useState<Edge[]>(formattedEdges);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: chill
+  useEffect(() => {
+    if (!steps) {
+      return;
+    }
+
+    const updatedNodes = formattedWorkflowNodes.map((node) => {
+      const step = steps.find((_step) => _step.nodeId === node.id);
+      if (step) {
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            status: step.status,
+            result: step.result,
+          },
+        };
+      }
+      return node;
+    });
+
+    setNodes(updatedNodes);
+  }, [steps]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) =>
@@ -84,22 +211,37 @@ function RouteComponent() {
   );
 
   return (
-    <div style={{ width: "100vw", height: "100vh" }}>
-      <ReactFlow
-        edges={edges}
-        fitView
-        nodes={nodes}
-        nodeTypes={nodeComponents}
-        onConnect={onConnect}
-        onEdgesChange={onEdgesChange}
-        onNodesChange={onNodesChange}
-        proOptions={{
-          hideAttribution: true,
-        }}
-      >
-        <Background />
-        <Controls />
-      </ReactFlow>
-    </div>
+    <WorkflowStepsProvider steps={steps}>
+      <div style={{ width: "100vw", height: "100vh" }}>
+        <ClientOnly fallback="loading...">
+          <ReactFlowProvider>
+            <ReactFlow
+              edges={edges}
+              fitView
+              nodes={nodes}
+              nodeTypes={nodeComponents}
+              onConnect={onConnect}
+              onEdgesChange={onEdgesChange}
+              onNodesChange={onNodesChange}
+              proOptions={{
+                hideAttribution: true,
+              }}
+            >
+              <Panel position="top-right">
+                <Button
+                  onClick={() => mutation()}
+                  type="button"
+                  variant="secondary"
+                >
+                  Run workflow
+                </Button>
+              </Panel>
+              <Background />
+              <Controls />
+            </ReactFlow>
+          </ReactFlowProvider>
+        </ClientOnly>
+      </div>
+    </WorkflowStepsProvider>
   );
 }
