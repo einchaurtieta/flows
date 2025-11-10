@@ -9,7 +9,7 @@ export type PlaceholderNodeProps = Partial<NodeProps> & {
   onClick?: () => void;
 };
 
-export const PlaceholderNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
+export const TriggerNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
   ({ children, onClick }, ref) => (
     <BaseNode
       className="h-auto w-auto cursor-pointer border-gray-400 border-dashed bg-card p-4 text-center text-gray-400 shadow-none hover:border-gray-500 hover:bg-gray-50"
@@ -17,13 +17,7 @@ export const PlaceholderNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
       ref={ref}
     >
       {children}
-      <Handle
-        isConnectable={true}
-        isConnectableStart={false}
-        position={Position.Left}
-        // style={{ visibility: "hidden" }}
-        type="target"
-      />
+
       <Handle
         isConnectable={true}
         position={Position.Right}
@@ -34,4 +28,4 @@ export const PlaceholderNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
   )
 );
 
-PlaceholderNode.displayName = "PlaceholderNode";
+TriggerNode.displayName = "TriggerNode";

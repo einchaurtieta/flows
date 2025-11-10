@@ -9,10 +9,10 @@ export type PlaceholderNodeProps = Partial<NodeProps> & {
   onClick?: () => void;
 };
 
-export const PlaceholderNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
+export const WorkflowNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
   ({ children, onClick }, ref) => (
     <BaseNode
-      className="h-auto w-auto cursor-pointer border-gray-400 border-dashed bg-card p-4 text-center text-gray-400 shadow-none hover:border-gray-500 hover:bg-gray-50"
+      className="h-auto w-auto cursor-pointer border-gray-400 bg-card p-4 text-center text-gray-400 shadow-none hover:border-gray-500 hover:bg-gray-50"
       onClick={onClick}
       ref={ref}
     >
@@ -34,4 +34,4 @@ export const PlaceholderNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
   )
 );
 
-PlaceholderNode.displayName = "PlaceholderNode";
+WorkflowNode.displayName = "WorkflowNode";
