@@ -246,6 +246,7 @@ export function Canvas() {
       }}
       selectionMode={SelectionMode.Partial}
       selectionOnDrag
+      snapToGrid
     >
       <Panel position="top-right">
         <div className="flex gap-2">

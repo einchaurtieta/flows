@@ -16,7 +16,7 @@ export type InputData = { nodes: InputNode[]; edges: InputEdge[] };
 const toKey = (nodeIdentifier: string | number): NodeKey =>
   String(nodeIdentifier);
 
-function posOrDefault(position?: { x?: number; y?: number }): CanvasPos {
+export function posOrDefault(position?: { x?: number; y?: number }): CanvasPos {
   const x = Number(position?.x);
   const y = Number(position?.y);
   return {
@@ -30,11 +30,11 @@ export function addNodeWithPosition(
   key: NodeKey,
   position: CanvasPos,
   extra: Record<string, unknown> = {}
-): void {
+) {
   graph.addNode(key, { position, ...extra });
 }
 
-export function posOf(graph: Graph, nodeKey: NodeKey): CanvasPos {
+export function posOf(graph: Graph, nodeKey: NodeKey) {
   if (!graph.hasNode(nodeKey)) {
     throw new Error(`posOf: node "${nodeKey}" is not in the graph`);
   }
@@ -43,25 +43,24 @@ export function posOf(graph: Graph, nodeKey: NodeKey): CanvasPos {
   return posOrDefault(rawPosition);
 }
 
-export function byCanvas(graph: Graph, a: NodeKey, b: NodeKey): number {
+export function byCanvas(graph: Graph, a: NodeKey, b: NodeKey) {
   const positionA = posOf(graph, a);
   const positionB = posOf(graph, b);
+
   return (
     positionA.y - positionB.y || positionA.x - positionB.x || a.localeCompare(b)
   );
 }
 
-export function buildGraph(data: InputData): Graph {
+export function buildGraph(data: InputData) {
   const graph = new Graph({ type: "directed" });
 
-  // 1) Add nodes (normalize keys) with positions
   for (const node of data.nodes) {
     const key = toKey(node._id);
     const pos = posOrDefault(node.position);
     addNodeWithPosition(graph, key, pos);
   }
 
-  // 2) Add edges (normalize keys). Skip edges whose endpoints are missing.
   for (const edge of data.edges) {
     const sourceKey = toKey(edge.sourceNodeId);
     const targetKey = toKey(edge.targetNodeId);
@@ -75,161 +74,159 @@ export function buildGraph(data: InputData): Graph {
   return graph;
 }
 
-/**
- * Find all split nodes (outDegree > 1), ordered by canvas (top→bottom, then left→right).
- */
-export function findSplitNodes(graph: Graph): NodeKey[] {
-  const splits: NodeKey[] = [];
-  for (const nodeKey of graph.nodes() as NodeKey[]) {
-    if (graph.outDegree(nodeKey) > 1) {
-      splits.push(nodeKey);
-    }
-  }
-  return splits.sort((a, b) => byCanvas(graph, a, b));
-}
+type ForkEntry = {
+  fork: NodeKey;
+  remaining: NodeKey[];
+};
 
-/**
- * Label nodes by branch from a given split node.
- */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: chill
-export function assignBranchIds(
+const getEligibleChildrenSorted = (
   graph: Graph,
-  splitNodeKey: NodeKey
-): Map<NodeKey, number> {
-  if (!graph.hasNode(splitNodeKey)) {
-    throw new Error(
-      `assignBranchIds: split node "${splitNodeKey}" not found in the graph`
-    );
-  }
-
-  const branchId = new Map<NodeKey, number>();
-  branchId.set(splitNodeKey, -1);
-
-  const children = (graph.outNeighbors(splitNodeKey) as NodeKey[])
-    .slice()
-    .sort((a, b) => byCanvas(graph, a, b));
-
-  for (const [branchIndex, childKey] of children.entries()) {
-    const stack: NodeKey[] = [childKey];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (current !== undefined && !branchId.has(current)) {
-        branchId.set(current, branchIndex);
-        const neighbors = graph.outNeighbors(current) as NodeKey[];
-        for (const neighbor of neighbors) {
-          if (!branchId.has(neighbor)) {
-            stack.push(neighbor);
-          }
-        }
-      }
+  nodeKey: NodeKey,
+  eligible: ReadonlySet<NodeKey>
+) => {
+  const children: NodeKey[] = [];
+  const neighbors = graph.outNeighbors(nodeKey) as Iterable<NodeKey>;
+  for (const neighbor of neighbors) {
+    if (eligible.has(neighbor)) {
+      children.push(neighbor);
     }
   }
 
-  return branchId;
-}
+  children.sort((first, second) => byCanvas(graph, first, second));
+  return children;
+};
+
+const refreshForkEntry = (
+  graph: Graph,
+  entry: ForkEntry,
+  eligible: ReadonlySet<NodeKey>
+) => {
+  entry.remaining = getEligibleChildrenSorted(graph, entry.fork, eligible);
+};
+
+const pickTopmostEligible = (graph: Graph, eligible: ReadonlySet<NodeKey>) => {
+  if (eligible.size === 0) {
+    return;
+  }
+  const candidates = Array.from(eligible);
+  candidates.sort((first, second) => byCanvas(graph, first, second));
+  return candidates[0];
+};
 
 /**
- * Kahn's algorithm variant that drains one branch fully before the next.
+ * Returns a topologically valid order that follows
+ * position-ordered DFS with backtracking (see rules above).
+ *
+ * The traversal keeps an `active` path tip, only extends that tip while it
+ * has eligible children, and defers global jumps until the tip and every
+ * fork on the stack run out of eligible continuations. Only then do we
+ * pick the topmost remaining eligible node to begin a new path.
  */
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: chill
-export function topoDrainByBranch(
-  graph: Graph,
-  branchId: ReadonlyMap<NodeKey, number>
-): NodeKey[] {
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: relax
+export function topoPathByCanvas(graph: Graph) {
+  const nodes = Array.from(graph.nodes() as Iterable<NodeKey>);
+  if (nodes.length === 0) {
+    return [];
+  }
+
   const indegree = new Map<NodeKey, number>();
-  for (const nodeKey of graph.nodes() as NodeKey[]) {
-    indegree.set(nodeKey, graph.inDegree(nodeKey));
-  }
+  const eligible = new Set<NodeKey>();
 
-  const queues = new Map<number, NodeKey[]>(); // branch -> nodes (sorted by canvas)
-
-  const push = (nodeKey: NodeKey) => {
-    const branch = branchId.get(nodeKey);
-    const normalizedBranch = branch ?? Number.MAX_SAFE_INTEGER;
-    const existingQueue = queues.get(normalizedBranch) ?? [];
-    existingQueue.push(nodeKey);
-    existingQueue.sort((first, second) => byCanvas(graph, first, second));
-    queues.set(normalizedBranch, existingQueue);
-  };
-
-  for (const nodeKey of graph.nodes() as NodeKey[]) {
-    if ((indegree.get(nodeKey) ?? 0) === 0) {
-      push(nodeKey);
+  for (const nodeKey of nodes) {
+    const degree = graph.inDegree(nodeKey);
+    indegree.set(nodeKey, degree);
+    if (degree === 0) {
+      eligible.add(nodeKey);
     }
   }
 
   const order: NodeKey[] = [];
+  const forkStack: ForkEntry[] = [];
+  let active: NodeKey | undefined;
 
-  const nextBranchId = (): number => {
-    let best: number | undefined;
-    for (const branch of queues.keys()) {
-      if (best === undefined || branch < best) {
-        best = branch;
+  const visit = (nodeKey: NodeKey) => {
+    order.push(nodeKey);
+    eligible.delete(nodeKey);
+    const neighbors = graph.outNeighbors(nodeKey) as Iterable<NodeKey>;
+    for (const child of neighbors) {
+      const degree = indegree.get(child);
+      if (degree === undefined) {
+        continue;
+      }
+      const nextDegree = degree - 1;
+      indegree.set(child, nextDegree);
+      if (nextDegree === 0) {
+        eligible.add(child);
       }
     }
-    if (best === undefined) {
-      throw new Error("topoDrainByBranch: no available branches");
-    }
-    return best;
+    active = nodeKey;
   };
 
-  while (queues.size) {
-    const branch = nextBranchId();
-    const queue = queues.get(branch);
+  while (order.length < nodes.length) {
+    let next: NodeKey | undefined;
 
-    if (!queue || queue.length === 0) {
-      queues.delete(branch);
-    } else {
-      const current = queue.shift();
-      if (current !== undefined) {
-        if (queue.length === 0) {
-          queues.delete(branch);
+    if (active) {
+      const children = getEligibleChildrenSorted(graph, active, eligible);
+      const childCount = children.length;
+      if (childCount === 0) {
+        active = undefined;
+      } else {
+        next = children[0];
+        if (childCount >= 2) {
+          forkStack.push({
+            fork: active,
+            remaining: children.slice(1),
+          });
         }
-
-        order.push(current);
-
-        const neighbors = graph.outNeighbors(current) as NodeKey[];
-        for (const neighbor of neighbors) {
-          const degree = (indegree.get(neighbor) ?? 0) - 1;
-          indegree.set(neighbor, degree);
-          if (degree === 0) {
-            push(neighbor);
-          }
-        }
-      } else if (queue.length === 0) {
-        queues.delete(branch);
       }
     }
+
+    if (!next) {
+      while (forkStack.length > 0) {
+        // biome-ignore lint/style/useAtIndex: relax
+        const candidateEntry = forkStack[forkStack.length - 1];
+        refreshForkEntry(graph, candidateEntry, eligible);
+        if (candidateEntry.remaining.length === 0) {
+          forkStack.pop();
+          continue;
+        }
+        next = candidateEntry.remaining.shift();
+        if (next) {
+          break;
+        }
+      }
+    }
+
+    if (!next) {
+      next = pickTopmostEligible(graph, eligible);
+    }
+
+    if (!next) {
+      throw new Error(
+        "topoPathByCanvas: graph contains a cycle or unreachable node"
+      );
+    }
+
+    visit(next);
   }
 
   return order;
 }
 
 /**
- * Convenience: compute branch-draining order automatically.
- * - Builds branchIds from the highest/leftmost split node (if any).
- * - Falls back to "no branches labeled" if no split exists.
- * - Filters to nodes that are part of at least one edge (like your original code).
+ * Convenience wrapper used by the workflow service. It keeps the previous
+ * behavior of filtering to nodes that participate in at least one edge.
  */
-export function computeBranchOrderedExecutionAuto(data: InputData): NodeKey[] {
+export function computeBranchOrderedExecutionAuto(data: InputData) {
   const graph = buildGraph(data);
-
-  // Detect split node (if none, we still produce a valid topo order)
-  const splits = findSplitNodes(graph);
-  const branchId = splits.length
-    ? assignBranchIds(graph, splits[0])
-    : new Map<NodeKey, number>();
-
-  const order = topoDrainByBranch(graph, branchId);
-
-  // Keep only nodes that are involved in at least one edge
-  const involved = new Set<NodeKey>();
+  const order = topoPathByCanvas(graph);
+  const involved = new Set();
 
   for (const edgeKey of graph.edges()) {
-    involved.add(graph.source(edgeKey) as NodeKey);
-    involved.add(graph.target(edgeKey) as NodeKey);
+    involved.add(graph.source(edgeKey));
+    involved.add(graph.target(edgeKey));
   }
 
-  return order.filter((n) => involved.has(n));
+  return order.filter((nodeKey) => involved.has(nodeKey));
 }
