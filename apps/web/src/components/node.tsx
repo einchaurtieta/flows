@@ -10,9 +10,9 @@ export type PlaceholderNodeProps = Partial<NodeProps> & {
 };
 
 export const WorkflowNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
-  ({ children, onClick }, ref) => (
+  ({ children, onClick, isConnectable }, ref) => (
     <BaseNode
-      className="h-auto w-auto cursor-pointer border-gray-400 bg-card p-4 text-center text-gray-400 shadow-none hover:border-gray-500 hover:bg-gray-50"
+      className="h-auto w-auto cursor-pointer border-gray-400 bg-card p-4 text-center text-gray-400"
       onClick={onClick}
       ref={ref}
     >
@@ -21,13 +21,25 @@ export const WorkflowNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
         isConnectable={true}
         isConnectableStart={false}
         position={Position.Left}
-        // style={{ visibility: "hidden" }}
+        style={{
+          width: "8px",
+          height: "8px",
+          borderRadius: "15px",
+          backgroundColor: "white",
+          border: "1px solid var(--color-gray-400)",
+        }}
         type="target"
       />
       <Handle
-        isConnectable={true}
+        isConnectable={isConnectable}
         position={Position.Right}
-        // style={{ visibility: "hidden" }}
+        style={{
+          width: "8px",
+          height: "8px",
+          borderRadius: "15px",
+          backgroundColor: "white",
+          border: "1px solid var(--color-gray-400)",
+        }}
         type="source"
       />
     </BaseNode>

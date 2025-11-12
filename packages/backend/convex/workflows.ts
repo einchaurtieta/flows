@@ -1,4 +1,5 @@
 import { vWorkflowId, WorkflowManager } from "@convex-dev/workflow";
+import { runHttpGetNode } from "@flows/nodes/examples";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -174,10 +175,19 @@ export const httpAction = internalAction({
     node: v.any(),
     context: v.any(),
   },
-  handler: async (_, args) => {
-    const data = await fetch(args.node.parameters.url);
+  handler: async (_ctx, args) => {
+    const execution = await runHttpGetNode({
+      ctx: { fetch },
+      parameters: {
+        url: args.node?.parameters?.url,
+      },
+    });
 
-    return await data.json();
+    return {
+      status: execution.status ?? 0,
+      body: execution.body ?? "",
+      headers: execution.headers ?? {},
+    };
   },
 });
 

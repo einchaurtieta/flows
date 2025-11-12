@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@convex-dev/workflow": "^0.2.7",
+    "@flows/nodes": "*",
     "convex": "^1.25.4",
     "graphology": "^0.26.0",
     "graphology-dag": "^0.4.1",

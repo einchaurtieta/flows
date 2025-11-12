@@ -23,7 +23,7 @@ export const Route = createFileRoute("/_authenticated/home/")({
   },
 });
 
-export function EditorErrorComponent({ error }: ErrorComponentProps) {
+function EditorErrorComponent({ error }: ErrorComponentProps) {
   return <ErrorComponent error={error} />;
 }
 
