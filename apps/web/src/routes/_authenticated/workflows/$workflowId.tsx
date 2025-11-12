@@ -11,13 +11,15 @@ import type { Id } from "@flows/backend/convex/_generated/dataModel.js";
 import { ReactFlowProvider } from "@xyflow/react";
 import { Canvas } from "./-components/canvas";
 
-export const Route = createFileRoute("/_authenticated/home/")({
+export const Route = createFileRoute("/_authenticated/workflows/$workflowId")({
   component: RouteComponent,
   errorComponent: EditorErrorComponent,
-  loader: async ({ context: { queryClient } }) => {
+  loader: async ({ context: { queryClient }, params }) => {
+    const workflowId = params.workflowId as Id<"workflows">;
+
     await queryClient.ensureQueryData(
       convexQuery(api.workflows.getWorflow, {
-        workflowId: "jh764q8p3p7sa56e23zjw58vt57tp4gn" as Id<"workflows">,
+        workflowId,
       })
     );
   },

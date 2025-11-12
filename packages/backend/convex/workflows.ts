@@ -245,6 +245,25 @@ export const getStepStatus = query({
       { workflowId }
     );
 
+    function mapRunResult(
+      runResult: (typeof journalEntries)[number]["step"]["runResult"]
+    ) {
+      if (!runResult) {
+        return null;
+      }
+      if (runResult.kind === "success") {
+        return { status: "success", data: runResult.returnValue };
+      }
+
+      if (runResult.kind === "failed") {
+        return { status: "failed", data: runResult.error };
+      }
+
+      if (runResult.kind === "canceled") {
+        return { status: "canceled", data: null };
+      }
+    }
+
     return journalEntries
       .sort((a, b) => a.stepNumber - b.stepNumber)
       .filter(
@@ -254,18 +273,9 @@ export const getStepStatus = query({
       )
       .map((e) => ({
         nodeId: e.step.args.node?._id || null,
-        stepNumber: e.stepNumber,
-        name: e.step.name,
-        result: e.step.runResult?.kind ?? null,
-        startedAt: e.step.startedAt ?? null,
-        completedAt: e.step.completedAt ?? null,
-        data:
-          e.step.runResult?.kind === "success"
-            ? e.step.runResult.returnValue
-            : null,
-        status: e.step.inProgress
-          ? "running"
-          : (e.step.runResult?.kind ?? "pending"),
+        // status: e.step.runResult?.kind ?? null,
+        inProgress: e.step.inProgress,
+        data: mapRunResult(e.step.runResult),
       }));
   },
 });
@@ -357,6 +367,23 @@ export const addEdge = mutation({
       targetNodeId: args.targetNodeId,
       // sourceHandle: args.sourceHandle,
       // targetHandle: args.targetHandle,
+    });
+  },
+});
+
+export const clearWorkflowRuns = mutation({
+  args: {
+    workflowId: v.id("workflows"),
+  },
+  handler: async (ctx, args) => {
+    const _workflow = await ctx.db.get(args.workflowId);
+
+    if (!_workflow) {
+      throw new Error("Workflow not found");
+    }
+
+    await ctx.db.patch(args.workflowId, {
+      currentRunId: undefined,
     });
   },
 });

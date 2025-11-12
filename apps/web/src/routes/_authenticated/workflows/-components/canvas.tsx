@@ -30,17 +30,21 @@ import {
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
+  BrushCleaning,
+  Check,
   Clock,
   Globe,
   Loader2,
   Play,
   Plus,
   PlusIcon,
+  X,
 } from "lucide-react";
 import { WorkflowNode } from "@/components/node";
 import { PlaceholderNode } from "@/components/placeholder-node";
 import { TriggerNode } from "@/components/trigger-node";
 import { Button } from "@/components/ui/button";
+import { Route } from "../$workflowId";
 
 const nodeComponents = {
   initial: () => (
@@ -56,29 +60,61 @@ const nodeComponents = {
     </TriggerNode>
   ),
   wait: () => {
-    const nodeId = useNodeId();
-    const data = useNodesData(nodeId ?? "");
+    const id = useNodeId();
+    const node = useNodesData<Node & { data: { result: { status: string } } }>(
+      id ?? ""
+    );
 
     return (
-      <WorkflowNode isConnectable={!data?.data.isConnected}>
-        {data?.data.status === "running" ? (
+      <WorkflowNode isConnectable={!node?.data.isConnected}>
+        {node?.data.inProgress ? (
           <Loader2 className="animate-spin" />
         ) : (
           <Clock />
+        )}
+        {node?.data.result?.status === "failed" && (
+          <X
+            className="absolute right-0.5 bottom-0.5 text-red-500"
+            height={"10px"}
+            width={"10px"}
+          />
+        )}
+        {node?.data.result?.status === "success" && (
+          <Check
+            className="absolute right-0.5 bottom-0.5 text-green-500"
+            height={"10px"}
+            width={"10px"}
+          />
         )}
       </WorkflowNode>
     );
   },
   http: () => {
-    const nodeId = useNodeId();
-    const data = useNodesData(nodeId ?? "");
+    const id = useNodeId();
+    const node = useNodesData<Node & { data: { result: { status: string } } }>(
+      id ?? ""
+    );
 
     return (
-      <WorkflowNode isConnectable={!data?.data.isConnected}>
-        {data?.data.status === "running" ? (
+      <WorkflowNode isConnectable={!node?.data.isConnected}>
+        {node?.data.inProgress ? (
           <Loader2 className="animate-spin" />
         ) : (
           <Globe />
+        )}
+        {node?.data.result?.status === "failed" && (
+          <X
+            className="absolute right-0.5 bottom-0.5 text-red-500"
+            height={"10px"}
+            width={"10px"}
+          />
+        )}
+        {node?.data.result?.status === "success" && (
+          <Check
+            className="absolute right-0.5 bottom-0.5 text-green-500"
+            height={"10px"}
+            width={"10px"}
+          />
         )}
       </WorkflowNode>
     );
@@ -87,7 +123,9 @@ const nodeComponents = {
 
 type Step = {
   nodeId: string;
-  status: string;
+  result: "success" | "failed" | "canceled" | null | undefined;
+  inProgress: boolean;
+  data: any;
 };
 
 function isEdgeAnimated(edge: Doc<"edges">, steps: Step[]) {
@@ -98,15 +136,15 @@ function isEdgeAnimated(edge: Doc<"edges">, steps: Step[]) {
     (step) => step.nodeId === edge.targetNodeId
   );
 
-  return (
-    sourceNodeStep && targetNodeStep && targetNodeStep.status === "running"
-  );
+  return sourceNodeStep && targetNodeStep && targetNodeStep.inProgress;
 }
 
 export function Canvas() {
+  const { workflowId } = Route.useParams() as { workflowId: Id<"workflows"> };
+
   const { data: workflow } = useSuspenseQuery(
     convexQuery(api.workflows.getWorflow, {
-      workflowId: "jh764q8p3p7sa56e23zjw58vt57tp4gn" as Id<"workflows">,
+      workflowId,
     })
   );
 
@@ -124,6 +162,7 @@ export function Canvas() {
   const addEdgeMutation = useConvexMutation(api.workflows.addEdge);
   const removeNode = useConvexMutation(api.workflows.removeNode);
   const addRandomNode = useConvexMutation(api.workflows.createRandomNode);
+  const clearWorflowRun = useConvexMutation(api.workflows.clearWorkflowRuns);
 
   const formattedWorkflowNodes = useMemo(
     () =>
@@ -131,10 +170,12 @@ export function Canvas() {
         id: node._id as string,
         data: {
           label: node.name,
-          status: steps?.find((_step) => _step.nodeId === node._id)?.status,
+          inProgress: steps?.find((_step) => _step.nodeId === node._id)
+            ?.inProgress,
           isConnected: workflow.edges.some(
             (edge) => edge.sourceNodeId === node._id
           ),
+          result: steps?.find((_step) => _step.nodeId === node._id)?.data,
         },
         position: {
           x: node.position.x,
@@ -209,12 +250,12 @@ export function Canvas() {
       setEdges((edgesSnapshot) => addEdge(params, edgesSnapshot));
 
       addEdgeMutation({
-        workflowId: "jh764q8p3p7sa56e23zjw58vt57tp4gn" as Id<"workflows">,
+        workflowId,
         sourceNodeId: params.source as Id<"nodes">,
         targetNodeId: params.target as Id<"nodes">,
       });
     },
-    [addEdgeMutation]
+    [addEdgeMutation, workflowId]
   );
 
   const onEdgesChange = useCallback(
@@ -233,7 +274,7 @@ export function Canvas() {
 
   const handleAddRandomNode = () => {
     addRandomNode({
-      workflowId: "jh764q8p3p7sa56e23zjw58vt57tp4gn" as Id<"workflows">,
+      workflowId,
     });
   };
 
@@ -266,18 +307,21 @@ export function Canvas() {
             <PlusIcon />
           </Button>
           <Button
+            onClick={() => clearWorflowRun({ workflowId })}
+            type="button"
+            variant="secondary"
+          >
+            <BrushCleaning />
+          </Button>
+          <Button
             className="cursor-pointer"
-            onClick={() =>
-              mutation({
-                id: "jh764q8p3p7sa56e23zjw58vt57tp4gn" as Id<"workflows">,
-              })
-            }
+            onClick={() => mutation({ id: workflowId })}
             type="button"
             variant="secondary"
           >
             <Play />
           </Button>
-          <HttpNodeInspector />
+          {/* <HttpNodeInspector /> */}
         </div>
       </Panel>
       <Background variant={BackgroundVariant.Dots} />

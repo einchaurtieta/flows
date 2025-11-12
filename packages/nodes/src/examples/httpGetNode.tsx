@@ -91,7 +91,7 @@ export const HttpGetConfigPanel = ({
 );
 
 type HttpExecutorContext = {
-  readonly fetch?: typeof fetch;
+  readonly fetch: typeof fetch;
 };
 
 const toHeaderRecord = (headers: Headers): Record<string, string> => {
@@ -108,10 +108,7 @@ export const runHttpGetNode = createNodeExecutor<
 >({
   definition: httpGetNode,
   handler: async ({ parameters: params, emit, ctx }) => {
-    throw new Error("Not implemented yet");
-    const fetchImpl = ctx.fetch ?? fetch;
-
-    const response = await fetchImpl(params.url, {
+    const response = await ctx.fetch(params.url, {
       method: params.method,
       body: params.body?.toString(),
     });

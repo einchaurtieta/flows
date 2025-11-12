@@ -1,5 +1,3 @@
-'use strict';
-
 import type { NodeDefinition } from "../core/manifest.js";
 import type { ParameterDefinitions } from "../core/parameters.js";
 import type { PortsDefinition } from "../core/ports.js";
@@ -14,7 +12,10 @@ export type NodeDiagnostic = {
 const idPattern = /^[a-z0-9-]+$/;
 const versionPattern = /^\d+\.\d+\.\d+$/;
 
-const validateId = (definition: AnyNodeDefinition, diagnostics: NodeDiagnostic[]) => {
+const validateId = (
+  definition: AnyNodeDefinition,
+  diagnostics: NodeDiagnostic[]
+) => {
   if (!idPattern.test(definition.manifest.id)) {
     diagnostics.push({
       severity: "error",
@@ -23,7 +24,10 @@ const validateId = (definition: AnyNodeDefinition, diagnostics: NodeDiagnostic[]
   }
 };
 
-const validateVersion = (definition: AnyNodeDefinition, diagnostics: NodeDiagnostic[]) => {
+const validateVersion = (
+  definition: AnyNodeDefinition,
+  diagnostics: NodeDiagnostic[]
+) => {
   if (!versionPattern.test(definition.manifest.version)) {
     diagnostics.push({
       severity: "warning",
@@ -32,7 +36,10 @@ const validateVersion = (definition: AnyNodeDefinition, diagnostics: NodeDiagnos
   }
 };
 
-const validateKeys = (definition: AnyNodeDefinition, diagnostics: NodeDiagnostic[]) => {
+const validateKeys = (
+  definition: AnyNodeDefinition,
+  diagnostics: NodeDiagnostic[]
+) => {
   const parameterEntries = Object.entries(definition.parameters);
   for (const [key, parameter] of parameterEntries) {
     if (parameter.id !== key) {
