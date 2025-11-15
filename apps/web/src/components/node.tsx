@@ -12,7 +12,7 @@ export type PlaceholderNodeProps = Partial<NodeProps> & {
 export const WorkflowNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
   ({ children, onClick, isConnectable }, ref) => (
     <BaseNode
-      className="h-auto w-auto cursor-pointer border-gray-400 bg-card p-4 text-center text-gray-400"
+      className="flex cursor-pointer items-center justify-center border-gray-400 bg-card p-4 text-center text-gray-400"
       onClick={onClick}
       ref={ref}
     >

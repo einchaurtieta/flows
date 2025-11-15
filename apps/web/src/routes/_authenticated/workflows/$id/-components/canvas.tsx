@@ -5,19 +5,23 @@ import {
   Background,
   BackgroundVariant,
   type Connection,
-  Controls,
   type Edge,
   type EdgeChange,
   type Node,
   type NodeChange,
   type NodeTypes,
-  Panel,
   ReactFlow,
   SelectionMode,
   useNodeId,
   useNodesData,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import "@xyflow/react/dist/style.css";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@flows/backend/convex/_generated/api.js";
@@ -28,23 +32,29 @@ import {
   httpGetNode,
 } from "@flows/nodes/examples";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowRight,
-  BrushCleaning,
   Check,
   Clock,
   Globe,
   Loader2,
-  Play,
   Plus,
-  PlusIcon,
   X,
 } from "lucide-react";
 import { WorkflowNode } from "@/components/node";
 import { PlaceholderNode } from "@/components/placeholder-node";
+import {
+  deriveSwitchRoutesFromParameters,
+  SwitchNode,
+} from "@/components/switch-node";
 import { TriggerNode } from "@/components/trigger-node";
-import { Button } from "@/components/ui/button";
-import { Route } from "../$workflowId";
+import type { NodeParameters } from "@/lib/nodes/definitions";
+import {
+  hydrateNodeParameters,
+  isRegisteredNodeType,
+} from "@/lib/nodes/definitions";
+import { Route } from "../route";
 
 const nodeComponents = {
   initial: () => (
@@ -56,7 +66,7 @@ const nodeComponents = {
   ),
   trigger: () => (
     <TriggerNode>
-      <ArrowRight />
+      <ArrowRight className="h-10 w-10" />
     </TriggerNode>
   ),
   wait: () => {
@@ -68,9 +78,9 @@ const nodeComponents = {
     return (
       <WorkflowNode isConnectable={!node?.data.isConnected}>
         {node?.data.inProgress ? (
-          <Loader2 className="animate-spin" />
+          <Loader2 className="h-10 w-10 animate-spin" />
         ) : (
-          <Clock />
+          <Clock className="h-10 w-10" />
         )}
         {node?.data.result?.status === "failed" && (
           <X
@@ -98,9 +108,9 @@ const nodeComponents = {
     return (
       <WorkflowNode isConnectable={!node?.data.isConnected}>
         {node?.data.inProgress ? (
-          <Loader2 className="animate-spin" />
+          <Loader2 className="h-10 w-10 animate-spin" />
         ) : (
-          <Globe />
+          <Globe className="h-10 w-10" />
         )}
         {node?.data.result?.status === "failed" && (
           <X
@@ -119,13 +129,20 @@ const nodeComponents = {
       </WorkflowNode>
     );
   },
+  switch: SwitchNode,
 } as const satisfies NodeTypes;
 
 type Step = {
   nodeId: string;
   result: "success" | "failed" | "canceled" | null | undefined;
   inProgress: boolean;
+  // biome-ignore lint/suspicious/noExplicitAny: chill for now
   data: any;
+};
+
+type EdgeWithHandles = Doc<"edges"> & {
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
 };
 
 function isEdgeAnimated(edge: Doc<"edges">, steps: Step[]) {
@@ -140,11 +157,12 @@ function isEdgeAnimated(edge: Doc<"edges">, steps: Step[]) {
 }
 
 export function Canvas() {
-  const { workflowId } = Route.useParams() as { workflowId: Id<"workflows"> };
+  const { id } = Route.useParams() as { id: Id<"workflows"> };
+  const navigate = useNavigate();
 
   const { data: workflow } = useSuspenseQuery(
     convexQuery(api.workflows.getWorflow, {
-      workflowId,
+      workflowId: id,
     })
   );
 
@@ -164,39 +182,85 @@ export function Canvas() {
   const addRandomNode = useConvexMutation(api.workflows.createRandomNode);
   const clearWorflowRun = useConvexMutation(api.workflows.clearWorkflowRuns);
 
-  const formattedWorkflowNodes = useMemo(
-    () =>
-      workflow?.nodes.map((node) => ({
+  const formattedWorkflowNodes = useMemo(() => {
+    if (!workflow?.nodes) {
+      return [] as Node[];
+    }
+
+    const usedHandlesByNode = new Map<string, Set<string>>();
+    const edgesWithHandles = workflow.edges as EdgeWithHandles[];
+    for (const edge of edgesWithHandles ?? []) {
+      if (!edge.sourceHandle) {
+        continue;
+      }
+      const existing =
+        usedHandlesByNode.get(edge.sourceNodeId) ?? new Set<string>();
+      existing.add(edge.sourceHandle);
+      usedHandlesByNode.set(edge.sourceNodeId, existing);
+    }
+
+    return workflow.nodes.map((node) => {
+      const usedHandles = Array.from(
+        usedHandlesByNode.get(node._id as string) ?? []
+      );
+      const rawParameters = node.parameters as
+        | Record<string, unknown>
+        | undefined;
+      let hydratedParameters: unknown;
+      if (isRegisteredNodeType(node.type)) {
+        hydratedParameters = hydrateNodeParameters(node.type, rawParameters);
+      }
+      const switchParameters =
+        node.type === "switch"
+          ? (hydratedParameters as NodeParameters<"switch"> | undefined)
+          : undefined;
+      const routes =
+        node.type === "switch"
+          ? deriveSwitchRoutesFromParameters(rawParameters ?? switchParameters)
+          : undefined;
+
+      return {
         id: node._id as string,
         data: {
           label: node.name,
           inProgress: steps?.find((_step) => _step.nodeId === node._id)
             ?.inProgress,
-          isConnected: workflow.edges.some(
-            (edge) => edge.sourceNodeId === node._id
-          ),
+          isConnected:
+            workflow.edges?.some((edge) => edge.sourceNodeId === node._id) ??
+            false,
           result: steps?.find((_step) => _step.nodeId === node._id)?.data,
+          routes,
+          parameters: hydratedParameters,
+          usedSourceHandles: usedHandles,
         },
         position: {
           x: node.position.x,
           y: node.position.y,
         },
         type: node.type,
-      })) as Node[],
-    [workflow?.nodes, steps, workflow?.edges]
-  );
+      } as Node;
+    }) as Node[];
+  }, [workflow?.nodes, workflow?.edges, steps]);
 
-  const formattedEdges = useMemo(
-    () =>
-      workflow?.edges.map((edge) => ({
-        id: edge._id as string,
-        source: edge.sourceNodeId,
-        target: edge.targetNodeId,
-        animated: isEdgeAnimated(edge, steps || []),
-      })) as Edge[],
-    [workflow?.edges, steps]
-  );
+  const formattedEdges = useMemo(() => {
+    if (!workflow?.edges) {
+      return [] as Edge[];
+    }
+    const edgesWithHandles = workflow.edges as EdgeWithHandles[];
+    return edgesWithHandles.map((edge) => ({
+      id: edge._id as string,
+      source: edge.sourceNodeId,
+      target: edge.targetNodeId,
+      // biome-ignore lint/suspicious/noExplicitAny: FIX
+      animated: isEdgeAnimated(edge, steps || ([] as any)),
+      sourceHandle: edge.sourceHandle ?? undefined,
+      targetHandle: edge.targetHandle ?? undefined,
+    })) as Edge[];
+  }, [workflow?.edges, steps]);
 
+  const [pendingRemovalIds, setPendingRemovalIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [nodes, setNodes] = useState<Node[]>(formattedWorkflowNodes || []);
   const [edges, setEdges] = useState<Edge[]>(formattedEdges || []);
 
@@ -204,10 +268,38 @@ export function Canvas() {
     setNodes((prev) => {
       const prevById = new Map(prev.map((node) => [node.id, node]));
 
-      return (formattedWorkflowNodes || []).map((node) => {
-        const prevNode = prevById.get(node.id);
-        return prevNode ? { ...node, selected: prevNode.selected } : node;
-      });
+      return (formattedWorkflowNodes || [])
+        .filter((node) => !pendingRemovalIds.has(node.id))
+        .map((node) => {
+          const prevNode = prevById.get(node.id);
+          return prevNode ? { ...node, selected: prevNode.selected } : node;
+        });
+    });
+  }, [formattedWorkflowNodes, pendingRemovalIds]);
+
+  useEffect(() => {
+    if (!formattedWorkflowNodes) {
+      return;
+    }
+
+    setPendingRemovalIds((prev) => {
+      if (!prev.size) {
+        return prev;
+      }
+
+      const serverIds = new Set(formattedWorkflowNodes.map((node) => node.id));
+      let changed = false;
+      const next = new Set<string>();
+
+      for (const pid of prev) {
+        if (serverIds.has(pid)) {
+          next.add(pid);
+        } else {
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
     });
   }, [formattedWorkflowNodes]);
 
@@ -228,6 +320,12 @@ export function Canvas() {
 
       for (const change of changes) {
         if (change.type === "remove") {
+          setPendingRemovalIds((prev) => {
+            const next = new Set(prev);
+            next.add(change.id);
+            return next;
+          });
+
           removeNode({ nodeId: change.id as Id<"nodes"> });
         }
       }
@@ -250,12 +348,14 @@ export function Canvas() {
       setEdges((edgesSnapshot) => addEdge(params, edgesSnapshot));
 
       addEdgeMutation({
-        workflowId,
+        workflowId: id,
         sourceNodeId: params.source as Id<"nodes">,
         targetNodeId: params.target as Id<"nodes">,
+        sourceHandle: params.sourceHandle ?? undefined,
+        targetHandle: params.targetHandle ?? undefined,
       });
     },
-    [addEdgeMutation, workflowId]
+    [addEdgeMutation, id]
   );
 
   const onEdgesChange = useCallback(
@@ -274,9 +374,20 @@ export function Canvas() {
 
   const handleAddRandomNode = () => {
     addRandomNode({
-      workflowId,
+      workflowId: id,
     });
   };
+
+  const handleNodeDoubleClick = useCallback(
+    (_event: MouseEvent, node: Node) => {
+      navigate({
+        to: "/workflows/$id",
+        params: { id },
+        search: (prev) => ({ ...prev, nodeId: node.id }),
+      });
+    },
+    [navigate, id]
+  );
 
   return (
     <ReactFlow
@@ -286,6 +397,7 @@ export function Canvas() {
       nodeTypes={nodeComponents}
       onConnect={onConnect}
       onEdgesChange={onEdgesChange}
+      onNodeDoubleClick={handleNodeDoubleClick}
       onNodeDragStop={onNodeDragStop}
       onNodesChange={onNodesChange}
       panOnDrag={[1, 2]}
@@ -297,7 +409,7 @@ export function Canvas() {
       selectionOnDrag
       snapToGrid
     >
-      <Panel position="bottom-center">
+      {/* <Panel position="bottom-center">
         <div className="flex gap-2">
           <Button
             onClick={() => handleAddRandomNode()}
@@ -307,7 +419,7 @@ export function Canvas() {
             <PlusIcon />
           </Button>
           <Button
-            onClick={() => clearWorflowRun({ workflowId })}
+            onClick={() => clearWorflowRun({ workflowId: id })}
             type="button"
             variant="secondary"
           >
@@ -315,17 +427,16 @@ export function Canvas() {
           </Button>
           <Button
             className="cursor-pointer"
-            onClick={() => mutation({ id: workflowId })}
+            onClick={() => mutation({ id })}
             type="button"
             variant="secondary"
           >
             <Play />
           </Button>
-          {/* <HttpNodeInspector /> */}
         </div>
-      </Panel>
+      </Panel> */}
       <Background variant={BackgroundVariant.Dots} />
-      <Controls />
+      {/* <Controls /> */}
     </ReactFlow>
   );
 }

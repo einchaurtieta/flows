@@ -11,7 +11,12 @@ export default defineSchema({
   nodes: defineTable({
     workflowId: v.id("workflows"),
     name: v.string(),
-    type: v.union(v.literal("trigger"), v.literal("http"), v.literal("wait")),
+    type: v.union(
+      v.literal("trigger"),
+      v.literal("http"),
+      v.literal("wait"),
+      v.literal("switch")
+    ),
     position: v.object({
       x: v.number(),
       y: v.number(),

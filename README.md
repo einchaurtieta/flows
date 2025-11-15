@@ -16,7 +16,7 @@
   - [ ] Manual trigger
   - [ ] Http
   - [ ] Wait
-  - [ ] Branch (If/Else)
+  - [ ] Switch (Match/Default)
   - [ ] Do nothing
   - [ ] End?
 - [ ] (Fix) Prevent edges duplication (validation)

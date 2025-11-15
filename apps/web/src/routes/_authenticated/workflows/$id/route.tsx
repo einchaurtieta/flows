@@ -9,20 +9,25 @@ import { convexQuery } from "@convex-dev/react-query";
 import { api } from "@flows/backend/convex/_generated/api.js";
 import type { Id } from "@flows/backend/convex/_generated/dataModel.js";
 import { ReactFlowProvider } from "@xyflow/react";
+import { z } from "zod";
 import { Canvas } from "./-components/canvas";
+import { Connector } from "./-components/connector";
 
-export const Route = createFileRoute("/_authenticated/workflows/$workflowId")({
+const searchSchema = z.object({
+  nodeId: z.string().optional(),
+});
+
+export const Route = createFileRoute("/_authenticated/workflows/$id")({
   component: RouteComponent,
   errorComponent: EditorErrorComponent,
   loader: async ({ context: { queryClient }, params }) => {
-    const workflowId = params.workflowId as Id<"workflows">;
-
     await queryClient.ensureQueryData(
       convexQuery(api.workflows.getWorflow, {
-        workflowId,
+        workflowId: params.id as Id<"workflows">,
       })
     );
   },
+  validateSearch: searchSchema,
 });
 
 function EditorErrorComponent({ error }: ErrorComponentProps) {
@@ -30,12 +35,26 @@ function EditorErrorComponent({ error }: ErrorComponentProps) {
 }
 
 function RouteComponent() {
+  // const navigate = useNavigate();
+  // const { workflowId } = Route.useParams() as { workflowId: Id<"workflows"> };
+  // const { nodeId } = Route.useSearch();
+
+  // const closeModal = useCallback(() => {
+  //   navigate({
+  //     to: "/workflows/$workflowId",
+  //     params: { workflowId },
+  //     search: (prev) => ({ ...prev, nodeId: undefined }),
+  //     replace: true,
+  //   });
+  // }, [navigate, workflowId]);
+
   return (
-    <div style={{ width: "100vw", height: "100vh" }}>
+    <div className="relative h-screen w-screen">
       <ClientOnly fallback="loading...">
         <ReactFlowProvider>
           <Canvas />
         </ReactFlowProvider>
+        <Connector />
       </ClientOnly>
     </div>
   );

@@ -12,3 +12,10 @@ export {
   type TextConstantParameterValues,
   textConstantNode,
 } from "./textConstantNode.js";
+
+export {
+  SwitchConfigPanel,
+  runSwitchNode,
+  switchNode,
+  type SwitchParameterValues,
+} from "./switchNode.js";

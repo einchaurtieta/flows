@@ -6,7 +6,7 @@ The current executor precomputes a single linear `order` array and runs every no
 
 ## Core constraints
 
-1. **Single outbound edge** for regular nodes. Control-flow decisions happen only inside dedicated nodes (Parallel/Fork, Merge/Join, Branch/If-Else later).
+1. **Single outbound edge** for regular nodes. Control-flow decisions happen only inside dedicated nodes (Parallel/Fork, Merge/Join, Switch/If-Else later).
 2. **Parallel node fan-out** creates isolated branches. Nodes inside different branches may not connect directly; reconvergence must go through a Merge.
 3. **Join/Merge nodes** define both synchronization (All, First, N-of-M, etc.) and data semantics (concat, reducer, key-join).
 4. **No cross-branch edges** outside Merge nodes. This prevents accidental data races and keeps the execution DAG well-defined.
@@ -39,7 +39,7 @@ while frontier not empty:
 
 To enable this runtime, the stored graph should capture:
 
-- Edge metadata for control nodes (e.g., branch label for If/Else, branch id for Parallel).
+- Edge metadata for control nodes (e.g., switch-case labels for If/Else, branch id for Parallel).
 - Node typing (regular, Parallel, Merge, Trigger, Terminal) so the executor knows which transition rules to apply.
 - Optional execution policies on Merge nodes (sync requirement, timeout, reducer strategy).
 
@@ -63,3 +63,9 @@ Validation must ensure the constraints above plus DAG acyclicity.
    - Once the base runtime works, add specialized nodes (If/Else, Wait, Join variants) on top of the shared control primitives.
 
 Documenting the model now keeps the team aligned before we touch code, and it gives us a checklist for the upcoming implementation work.
+
+## Next steps
+
+1. **Editor integration**: expose switch handles in the canvas, call the shared `planEdgeConnection` helper for optimistic validation, and include `branchKey` when persisting edges.
+2. **Execution engine**: swap the linear `order` loop for the frontier-based scheduler that reads branch metadata (`branchScopeId`, `branchKey`) to decide which nodes become eligible after a Switch node runs.
+3. **Merge semantics**: design and validate Join/Merge nodes so reconvergence obeys the same shared rules (including future policies like All/First/N-of-M) before adding more control primitives.

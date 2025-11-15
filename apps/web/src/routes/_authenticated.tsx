@@ -4,12 +4,14 @@ import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 export const Route = createFileRoute("/_authenticated")({
   component: Layout,
   beforeLoad: async () => {
-    const { isAuthenticated } = await auth();
+    if (typeof window === "undefined") {
+      const { isAuthenticated } = await auth();
 
-    if (!isAuthenticated) {
-      throw redirect({
-        to: "/auth/$",
-      });
+      if (!isAuthenticated) {
+        throw redirect({
+          to: "/auth/$",
+        });
+      }
     }
   },
 });

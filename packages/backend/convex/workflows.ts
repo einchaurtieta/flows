@@ -1,5 +1,5 @@
 import { vWorkflowId, WorkflowManager } from "@convex-dev/workflow";
-import { runHttpGetNode } from "@flows/nodes/examples";
+import { runHttpGetNode, runSwitchNode } from "@flows/nodes/examples";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -166,6 +166,15 @@ export const theWorkflow = workflow.define({
       if (node?.type === "wait") {
         await step.runAction(internal.workflows.waitAction, { node });
       }
+
+      if (node?.type === "switch") {
+        const switchResult = await step.runAction(
+          internal.workflows.switchAction,
+          { node, context }
+        );
+
+        context = switchResult;
+      }
     }
   },
 });
@@ -199,6 +208,28 @@ export const waitAction = internalAction({
     await new Promise((resolve) =>
       setTimeout(resolve, args.node.parameters.duration)
     );
+  },
+});
+
+const normalizeContextRecord = (raw: unknown): Record<string, unknown> => {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+};
+
+export const switchAction = internalAction({
+  args: {
+    node: v.any(),
+    context: v.any(),
+  },
+  handler: async (_, args) => {
+    const execution = await runSwitchNode({
+      ctx: { context: normalizeContextRecord(args.context) },
+      parameters: args.node?.parameters,
+    });
+
+    return execution;
   },
 });
 
@@ -273,7 +304,6 @@ export const getStepStatus = query({
       )
       .map((e) => ({
         nodeId: e.step.args.node?._id || null,
-        // status: e.step.runResult?.kind ?? null,
         inProgress: e.step.inProgress,
         data: mapRunResult(e.step.runResult),
       }));
@@ -294,6 +324,18 @@ export const updateNodePosition = mutation({
         x: args.position.x,
         y: args.position.y,
       },
+    });
+  },
+});
+
+export const updateNodeParameters = mutation({
+  args: {
+    nodeId: v.id("nodes"),
+    parameters: v.any(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.nodeId, {
+      parameters: args.parameters,
     });
   },
 });
@@ -321,11 +363,12 @@ export const createRandomNode = mutation({
     workflowId: v.id("workflows"),
   },
   handler: async (ctx, args) => {
-    const nodes = ["http", "wait"];
+    const nodes = ["http", "wait", "switch"];
     const randomType = nodes[Math.floor(Math.random() * nodes.length)] as
       | "trigger"
       | "http"
-      | "wait";
+      | "wait"
+      | "switch";
 
     const num = 400;
 
@@ -339,11 +382,24 @@ export const createRandomNode = mutation({
               method: "GET",
               url: "https://pokeapi.co/api/v2/pokemon/ditto",
             }
-          : randomType === "wait"
+          : // biome-ignore lint/style/noNestedTernary: <explanation>
+            randomType === "wait"
             ? {
                 duration: 2000,
               }
-            : {},
+            : // biome-ignore lint/style/noNestedTernary: <explanation>
+              randomType === "switch"
+              ? {
+                  path: "status",
+                  operator: "equals",
+                  valueType: "string",
+                  expectedValue: "ok",
+                  routes: [
+                    { id: "match", label: "Match" },
+                    { id: "default", label: "Default" },
+                  ],
+                }
+              : {},
       position: {
         x: Math.floor(Math.random() * num),
         y: Math.floor(Math.random() * num),
@@ -357,16 +413,16 @@ export const addEdge = mutation({
     workflowId: v.id("workflows"),
     sourceNodeId: v.id("nodes"),
     targetNodeId: v.id("nodes"),
-    // sourceHandle: v.string(),
-    // targetHandle: v.string(),
+    sourceHandle: v.optional(v.string()),
+    targetHandle: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("edges", {
       workflowId: args.workflowId,
       sourceNodeId: args.sourceNodeId,
       targetNodeId: args.targetNodeId,
-      // sourceHandle: args.sourceHandle,
-      // targetHandle: args.targetHandle,
+      sourceHandle: args.sourceHandle,
+      targetHandle: args.targetHandle,
     });
   },
 });

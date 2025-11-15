@@ -12,12 +12,11 @@ export type PlaceholderNodeProps = Partial<NodeProps> & {
 export const TriggerNode = forwardRef<HTMLDivElement, PlaceholderNodeProps>(
   ({ children, onClick }, ref) => (
     <BaseNode
-      className="h-auto w-auto cursor-pointer border-gray-400 border-dashed bg-card p-4 text-center text-gray-400 shadow-none"
+      className="flex cursor-pointer items-center justify-center border-gray-400 border-dashed bg-card p-4 text-center text-gray-400 shadow-none"
       onClick={onClick}
       ref={ref}
     >
       {children}
-
       <Handle
         isConnectable={true}
         position={Position.Right}
